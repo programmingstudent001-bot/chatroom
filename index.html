@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>비밀 채팅방</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Malgun Gothic', sans-serif; }
+    body { background: #f2f4f7; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 16px; }
+    .container { width: 100%; max-width: 480px; background: #fff; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); overflow: hidden; }
+    .header { background: #3b82f6; color: #fff; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; }
+    .header h1 { font-size: 18px; }
+    .btn { border: none; border-radius: 8px; padding: 10px 14px; font-size: 14px; font-weight: bold; cursor: pointer; }
+    .btn-primary { background: #3b82f6; color: #fff; width: 100%; }
+    .btn-primary:hover { background: #2563eb; }
+    .btn-danger { background: #ef4444; color: #fff; font-size: 12px; padding: 6px 10px; }
+    .btn-accept { background: #10b981; color: #fff; font-size: 12px; padding: 5px 10px; margin-right: 4px; }
+    .btn-reject { background: #ef4444; color: #fff; font-size: 12px; padding: 5px 10px; }
+    .section { padding: 20px; }
+    .hidden { display: none !important; }
+    .tab-group { display: flex; gap: 8px; margin-bottom: 16px; }
+    .tab { flex: 1; padding: 10px; border: 1px solid #d1d5db; background: #f9fafb; border-radius: 8px; cursor: pointer; font-weight: bold; }
+    .tab.active { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+    .form-group { margin-bottom: 14px; }
+    .form-group label { display: block; font-size: 13px; font-weight: bold; margin-bottom: 6px; color: #374151; }
+    .form-group input, .form-group select { width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; }
+    .status-msg { margin-top: 12px; font-size: 14px; text-align: center; color: #ef4444; font-weight: bold; min-height: 20px; }
+    
+    /* 대기 화면 */
+    .waiting-box { text-align: center; padding: 40px 20px; }
+    .waiting-box p { font-size: 16px; color: #374151; margin-bottom: 12px; }
+
+    /* 방장 대기열 패널 */
+    .host-panel { background: #fefce8; border-bottom: 1px solid #fef08a; padding: 12px 16px; }
+    .host-panel h3 { font-size: 13px; color: #854d0e; margin-bottom: 8px; }
+    .waiting-item { display: flex; justify-content: space-between; align-items: center; background: #fff; padding: 8px 10px; border-radius: 8px; margin-bottom: 6px; border: 1px solid #fde047; font-size: 14px; }
+
+    /* 공지 영역 */
+    .notice-bar { background: #eff6ff; border-bottom: 1px solid #bfdbfe; padding: 10px 16px; font-size: 13px; color: #1e40af; display: flex; align-items: center; gap: 6px; }
+    .notice-badge { background: #3b82f6; color: #fff; font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: bold; flex-shrink: 0; }
+    .notice-text { word-break: break-all; }
+
+    /* 채팅 영역 */
+    .chat-box { height: 360px; overflow-y: auto; padding: 16px; background: #f9fafb; display: flex; flex-direction: column; gap: 10px; }
+    .msg-item { background: #fff; padding: 10px 12px; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); max-width: 85%; align-self: flex-start; }
+    .msg-item.mine { background: #dbeafe; align-self: flex-end; }
+    .msg-item.notice-msg { background: #fef3c7; border: 1px solid #fcd34d; align-self: center; max-width: 95%; text-align: center; }
+    .msg-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 12px; color: #6b7280; }
+    .msg-name { font-weight: bold; color: #111827; }
+    .msg-content { font-size: 14px; color: #1f2937; word-break: break-word; white-space: pre-wrap; }
+    .msg-footer { display: flex; justify-content: flex-end; margin-top: 6px; }
+    .like-btn { background: none; border: 1px solid #e5e7eb; border-radius: 12px; padding: 2px 8px; font-size: 12px; cursor: pointer; color: #4b5563; }
+    .like-btn:hover { background: #fee2e2; border-color: #fca5a5; color: #dc2626; }
+
+    /* 입력 영역 */
+    .input-area { padding: 12px 16px; border-top: 1px solid #e5e7eb; background: #fff; }
+    .notice-check { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #374151; margin-bottom: 8px; cursor: pointer; }
+    .input-row { display: flex; gap: 8px; }
+    .input-row input { flex: 1; padding: 10px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; }
+    .input-row button { width: auto; padding: 0 18px; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <h1>💬 비밀 채팅방</h1>
+    <button id="closeRoomBtn" class="btn btn-danger hidden">방 닫기</button>
+  </div>
+
+  <!-- 1. 입장 화면 -->
+  <div id="entryScreen" class="section">
+    <div class="tab-group">
+      <button id="tabGuest" class="tab active">손님으로 입장</button>
+      <button id="tabHost" class="tab">방장으로 입장</button>
+    </div>
+
+    <!-- 손님 입력 폼 -->
+    <div id="guestForm">
+      <div class="form-group">
+        <label for="guestEmoji">이모지 선택</label>
+        <select id="guestEmoji">
+          <option value="🐶">🐶 강아지</option>
+          <option value="🐱">🐱 고양이</option>
+          <option value="🐰">🐰 토끼</option>
+          <option value="🦊">🦊 여우</option>
+          <option value="🐻">🐻 곰</option>
+          <option value="🐼">🐼 판다</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="guestName">이름 (닉네임)</label>
+        <input type="text" id="guestName" placeholder="사용할 이름을 입력하세요" maxlength="15" />
+      </div>
+      <button id="requestJoinBtn" class="btn btn-primary">입장 요청</button>
+    </div>
+
+    <!-- 방장 입력 폼 -->
+    <div id="hostForm" class="hidden">
+      <div class="form-group">
+        <label for="hostPassword">방장 암호</label>
+        <input type="password" id="hostPassword" placeholder="암호를 입력하세요" />
+      </div>
+      <button id="hostJoinBtn" class="btn btn-primary">방장 입장</button>
+    </div>
+
+    <div id="entryStatus" class="status-msg"></div>
+  </div>
+
+  <!-- 2. 손님 승인 대기 화면 -->
+  <div id="waitingScreen" class="section waiting-box hidden">
+    <p id="waitingText">방장의 입장을 기다리고 있어요... ⏳</p>
+  </div>
+
+  <!-- 3. 채팅방 화면 -->
+  <div id="chatScreen" class="hidden">
+    <!-- 방장 전용 대기 손님 목록 -->
+    <div id="hostPanel" class="host-panel hidden">
+      <h3>🔔 입장 대기 중인 손님</h3>
+      <div id="waitingList"></div>
+    </div>
+
+    <!-- 상단 고정 공지 -->
+    <div id="noticeBar" class="notice-bar hidden">
+      <span class="notice-badge">공지</span>
+      <span id="noticeText" class="notice-text"></span>
+    </div>
+
+    <!-- 메시지 목록 -->
+    <div id="chatBox" class="chat-box"></div>
+
+    <!-- 메시지 입력창 -->
+    <div class="input-area">
+      <label id="noticeCheckLabel" class="notice-check hidden">
+        <input type="checkbox" id="isNoticeCheck" />
+        <span>공지로 고정하기</span>
+      </label>
+      <div class="input-row">
+        <input type="text" id="msgInput" placeholder="메시지를 입력하세요..." />
+        <button id="sendMsgBtn" class="btn btn-primary">보내기</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Supabase 초기화
+  const SUPABASE_URL = 'https://ovmafqsvwsnxwkynmubj.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_Dw8vYD-dEpHuGxpvY1dD2w_-935u1Ub';
+  const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  // 상태 변수
+  let myId = null;
+  let myName = '';
+  let myEmoji = '';
+  let myRole = ''; // 'host' 또는 'guest'
+  let pollingTimer = null;
+
+  // DOM 요소
+  const entryScreen = document.getElementById('entryScreen');
+  const waitingScreen = document.getElementById('waitingScreen');
+  const chatScreen = document.getElementById('chatScreen');
+  const closeRoomBtn = document.getElementById('closeRoomBtn');
+
+  const tabGuest = document.getElementById('tabGuest');
+  const tabHost = document.getElementById('tabHost');
+  const guestForm = document.getElementById('guestForm');
+  const hostForm = document.getElementById('hostForm');
+  const entryStatus = document.getElementById('entryStatus');
+
+  const guestEmoji = document.getElementById('guestEmoji');
+  const guestName = document.getElementById('guestName');
+  const requestJoinBtn = document.getElementById('requestJoinBtn');
+
+  const hostPassword = document.getElementById('hostPassword');
+  const hostJoinBtn = document.getElementById('hostJoinBtn');
+
+  const waitingText = document.getElementById('waitingText');
+  const hostPanel = document.getElementById('hostPanel');
+  const waitingList = document.getElementById('waitingList');
+
+  const noticeBar = document.getElementById('noticeBar');
+  const noticeText = document.getElementById('noticeText');
+  const chatBox = document.getElementById('chatBox');
+
+  const noticeCheckLabel = document.getElementById('noticeCheckLabel');
+  const isNoticeCheck = document.getElementById('isNoticeCheck');
+  const msgInput = document.getElementById('msgInput');
+  const sendMsgBtn = document.getElementById('sendMsgBtn');
+
+  // 탭 전환
+  tabGuest.addEventListener('click', () => {
+    tabGuest.classList.add('active');
+    tabHost.classList.remove('active');
+    guestForm.classList.remove('hidden');
+    hostForm.classList.add('hidden');
+    entryStatus.textContent = '';
+  });
+
+  tabHost.addEventListener('click', () => {
+    tabHost.classList.add('active');
+    tabGuest.classList.remove('active');
+    hostForm.classList.remove('hidden');
+    guestForm.classList.add('hidden');
+    entryStatus.textContent = '';
+  });
+
+  // 1. 방장 입장 처리
+  hostJoinBtn.addEventListener('click', async () => {
+    const pw = hostPassword.value.trim();
+    if (pw !== '1234') {
+      entryStatus.textContent = '방장 암호가 올바르지 않습니다.';
+      return;
+    }
+
+    entryStatus.textContent = '입장 중...';
+    const { data, error } = await db
+      .from('members')
+      .insert([{
+        name: '방장',
+        emoji: '👑',
+        role: 'host',
+        status: 'approved'
+      }])
+      .select()
+      .single();
+
+    if (error) {
+      entryStatus.textContent = '입장 중 오류가 발생했습니다.';
+      console.error(error);
+      return;
+    }
+
+    myId = data.id;
+    myName = data.name;
+    myEmoji = data.emoji;
+    myRole = 'host';
+
+    enterChatRoom();
+  });
+
+  // 2 & 3. 손님 입장 요청 처리
+  requestJoinBtn.addEventListener('click', async () => {
+    const nameVal = guestName.value.trim();
+    const emojiVal = guestEmoji.value;
+
+    if (!nameVal) {
+      entryStatus.textContent = '이름을 입력해 주세요.';
+      return;
+    }
+
+    entryStatus.textContent = '방장 확인 중...';
+
+    // role='host'인 사람이 있는지 확인
+    const { data: hosts, error: hostError } = await db
+      .from('members')
+      .select('id')
+      .eq('role', 'host');
+
+    if (hostError) {
+      entryStatus.textContent = '확인 중 오류가 발생했습니다.';
+      console.error(hostError);
+      return;
+    }
+
+    // 방장이 없으면 저장하지 않고 안내만 표시
+    if (!hosts || hosts.length === 0) {
+      entryStatus.textContent = '방장이 아직 안 들어왔어요';
+      return;
+    }
+
+    // 방장이 있으면 waiting으로 저장 후 id 기억
+    const { data, error } = await db
+      .from('members')
+      .insert([{
+        name: nameVal,
+        emoji: emojiVal,
+        role: 'guest',
+        status: 'waiting'
+      }])
+      .select()
+      .single();
+
+    if (error) {
+      entryStatus.textContent = '입장 요청 중 오류가 발생했습니다.';
+      console.error(error);
+      return;
+    }
+
+    myId = data.id;
+    myName = data.name;
+    myEmoji = data.emoji;
+    myRole = 'guest';
+
+    // 대기 화면으로 전환 및 상태 폴링 시작
+    entryScreen.classList.add('hidden');
+    waitingScreen.classList.remove('hidden');
+    startGuestWaitingPolling();
+  });
+
+  // 4. 손님 승인 상태 2.5초마다 확인
+  function startGuestWaitingPolling() {
+    stopPolling();
+    pollingTimer = setInterval(async () => {
+      const { data, error } = await db
+        .from('members')
+        .select('status')
+        .eq('id', myId)
+        .maybeSingle();
+
+      if (error) {
+        console.error(error);
+        return;
+      }
+
+      // 내 기록이 사라졌으면 안내 후 새로고침 멈춤
+      if (!data) {
+        waitingText.textContent = '방에서 나왔어요';
+        stopPolling();
+        return;
+      }
+
+      // approved가 되면 채팅방으로 이동
+      if (data.status === 'approved') {
+        stopPolling();
+        enterChatRoom();
+      }
+    }, 2500);
+  }
+
+  // 채팅방 진입 설정
+  function enterChatRoom() {
+    entryScreen.classList.add('hidden');
+    waitingScreen.classList.add('hidden');
+    chatScreen.classList.remove('hidden');
+
+    if (myRole === 'host') {
+      closeRoomBtn.classList.remove('hidden');
+      hostPanel.classList.remove('hidden');
+      noticeCheckLabel.classList.remove('hidden');
+    }
+
+    refreshChatRoom();
+    stopPolling();
+    pollingTimer = setInterval(refreshChatRoom, 2500);
+  }
+
+  // 채팅방 주기적 갱신 (메시지 + 손님상태/대기목록)
+  async function refreshChatRoom() {
+    // 손님인 경우 내 기록이 지워졌는지(방 닫힘/강퇴) 확인
+    if (myRole === 'guest') {
+      const { data: me } = await db
+        .from('members')
+        .select('id')
+        .eq('id', myId)
+        .maybeSingle();
+
+      if (!me) {
+        stopPolling();
+        chatScreen.classList.add('hidden');
+        waitingScreen.classList.remove('hidden');
+        waitingText.textContent = '방에서 나왔어요';
+        return;
+      }
+    }
+
+    // 5. 방장 화면이면 대기 중인 손님 목록 갱신
+    if (myRole === 'host') {
+      await loadWaitingGuests();
+    }
+
+    // 6 & 9. 메시지 및 최신 공지 불러오기
+    await loadMessages();
+  }
+
+  // 5. 방장용 대기 손님 목록 불러오기 및 수락/거절
+  async function loadWaitingGuests() {
+    const { data, error } = await db
+      .from('members')
+      .select('*')
+      .eq('status', 'waiting')
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error(error);
+      return;
+    }
+
+    waitingList.innerHTML = '';
+    if (!data || data.length === 0) {
+      const emptyEl = document.createElement('div');
+      emptyEl.style.fontSize = '13px';
+      emptyEl.style.color = '#6b7280';
+      emptyEl.textContent = '대기 중인 손님이 없습니다.';
+      waitingList.appendChild(emptyEl);
+      return;
+    }
+
+    data.forEach((guest) => {
+      const item = document.createElement('div');
+      item.className = 'waiting-item';
+
+      const infoSpan = document.createElement('span');
+      infoSpan.textContent = `${guest.emoji || ''} ${guest.name}`;
+
+      const btnGroup = document.createElement('div');
+
+      const acceptBtn = document.createElement('button');
+      acceptBtn.className = 'btn btn-accept';
+      acceptBtn.textContent = '수락';
+      acceptBtn.onclick = async () => {
+        await db.from('members').update({ status: 'approved' }).eq('id', guest.id);
+        loadWaitingGuests();
+      };
+
+      const rejectBtn = document.createElement('button');
+      rejectBtn.className = 'btn btn-reject';
+      rejectBtn.textContent = '거절';
+      rejectBtn.onclick = async () => {
+        await db.from('members').delete().eq('id', guest.id);
+        loadWaitingGuests();
+      };
+
+      btnGroup.appendChild(acceptBtn);
+      btnGroup.appendChild(rejectBtn);
+      item.appendChild(infoSpan);
+      item.appendChild(btnGroup);
+      waitingList.appendChild(item);
+    });
+  }
+
+  // 6, 8, 9. 메시지 목록 불러오기 및 상단 공지 고정
+  async function loadMessages() {
+    const { data, error } = await db
+      .from('messages')
+      .select('*')
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error(error);
+      return;
+    }
+
+    // 9. 가장 최근 공지 하나만 대화창 위에 고정
+    const notices = (data || []).filter((m) => m.is_notice === true);
+    if (notices.length > 0) {
+      const latestNotice = notices[notices.length - 1];
+      noticeText.textContent = latestNotice.content;
+      noticeBar.classList.remove('hidden');
+    } else {
+      noticeBar.classList.add('hidden');
+      noticeText.textContent = '';
+    }
+
+    // 스크롤 위치 기억
+    const isNearBottom = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight < 60;
+
+    chatBox.innerHTML = '';
+    (data || []).forEach((msg) => {
+      const item = document.createElement('div');
+      const displayMyName = `${myEmoji} ${myName}`.trim();
+      const isMine = msg.name === displayMyName || (myRole === 'host' && msg.name === '👑 방장');
+
+      item.className = 'msg-item';
+      if (msg.is_notice) {
+        item.classList.add('notice-msg');
+      } else if (isMine) {
+        item.classList.add('mine');
+      }
+
+      const header = document.createElement('div');
+      header.className = 'msg-header';
+
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'msg-name';
+      // 8. textContent 사용
+      nameSpan.textContent = msg.is_notice ? `📢 [공지] ${msg.name}` : msg.name;
+
+      header.appendChild(nameSpan);
+
+      const contentDiv = document.createElement('div');
+      contentDiv.className = 'msg-content';
+      // 8. textContent 사용
+      contentDiv.textContent = msg.content;
+
+      const footer = document.createElement('div');
+      footer.className = 'msg-footer';
+
+      const likeBtn = document.createElement('button');
+      likeBtn.className = 'like-btn';
+      likeBtn.textContent = `❤️ ${msg.likes || 0}`;
+      likeBtn.onclick = async () => {
+        const nextLikes = (msg.likes || 0) + 1;
+        await db.from('messages').update({ likes: nextLikes }).eq('id', msg.id);
+        loadMessages();
+      };
+
+      footer.appendChild(likeBtn);
+
+      item.appendChild(header);
+      item.appendChild(contentDiv);
+      item.appendChild(footer);
+      chatBox.appendChild(item);
+    });
+
+    if (isNearBottom) {
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+  }
+
+  // 6 & 9. 메시지 전송 (공지 여부 포함)
+  async function sendMessage() {
+    const content = msgInput.value.trim();
+    if (!content) return;
+
+    const isNotice = myRole === 'host' && isNoticeCheck.checked;
+    const senderName = `${myEmoji} ${myName}`.trim();
+
+    msgInput.value = '';
+    if (isNotice) {
+      isNoticeCheck.checked = false;
+    }
+
+    const { error } = await db
+      .from('messages')
+      .insert([{
+        name: senderName,
+        content: content,
+        is_notice: isNotice,
+        likes: 0
+      }]);
+
+    if (error) {
+      console.error(error);
+      alert('메시지 전송에 실패했습니다.');
+      return;
+    }
+
+    await loadMessages();
+    chatBox.scrollTop = chatBox.scrollHeight;
+  }
+
+  sendMsgBtn.addEventListener('click', sendMessage);
+
+  // 한글 조합 중 중복 입력 방지 (e.isComposing)
+  msgInput.addEventListener('keydown', (e) => {
+    if (e.isComposing) return;
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  // 7. 방 닫기 (messages와 members의 모든 기록 삭제)
+  closeRoomBtn.addEventListener('click', async () => {
+    if (!confirm('방을 닫으면 모든 대화와 참여자 기록이 삭제됩니다. 닫으시겠습니까?')) {
+      return;
+    }
+
+    stopPolling();
+
+    // id가 0보다 큰 모든 행 삭제
+    await db.from('messages').delete().gt('id', 0);
+    await db.from('members').delete().gt('id', 0);
+
+    alert('방이 닫혔습니다.');
+    location.reload();
+  });
+
+  function stopPolling() {
+    if (pollingTimer) {
+      clearInterval(pollingTimer);
+      pollingTimer = null;
+    }
+  }
+</script>
+
+</body>
+</html>
